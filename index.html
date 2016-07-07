@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>W3C TR Timesheet</title>
+    <meta charset="utf-8" /> 
+    <link rel="Stylesheet" type="text/css" href="timesheet-white.css" />
+    <script type="text/javascript" src="jquery-1.11.3.min.js"></script>
+    <script type="text/javascript" src="timesheet.min.js"></script>
+    <style type="text/css">
+        body, html { height: 100%; margin: 5px; font-size: 12px; font-family: Arial; }
+        
+        .white .timesheet .scale section { font-family: Arial; }
+      
+        form, #legend, #copyright, #waiting { margin: 20px auto; }
+      
+        #pageurl { width: 300px; }
+        #timesheet a { text-decoration: none; }
+        #timesheet span { font-family: Arial; }
+        
+        label { font-weight: bold; }
+        
+        #legend { display: none; }
+      
+        #waiting { display: none; text-align: center; }
+      
+        .timesheet.color-scheme-default .bubble-stds { background-color: #2A8E31; }
+        .timesheet.color-scheme-default .bubble-notes { background-color: #001C71; }
+        .timesheet.color-scheme-default .bubble-cr { background-color: #C5D011; }
+        .timesheet.color-scheme-default .bubble-lcwd { background-color: #DB9557; }
+        .timesheet.color-scheme-default .bubble-wd { background-color: #DE5826; }
+        .timesheet.color-scheme-default .bubble-retired { background-color: #999999; }
+        
+        
+    </style>
+  </head>
+  <body class="white">
+
+    <form action="">
+        <h1>W3C TR Timesheet</h1>
+        <label for="pageurl">"Current Status" Page Url of Standards: </label>
+        <input type="text" name="pageurl" id="pageurl" placeholder="http://" />
+        <input type="button" value="Generate" id="render" />
+        &nbsp;&nbsp;
+        <input type="checkbox" name="keepdata" id="keepdata" /><label for="keepdata">Keep Data</label>
+        &nbsp;&nbsp;e.g.
+        <strong>
+            <a href="javascript:void(0);" title="https://www.w3.org/standards/techs/html#w3c_all">HTML</a>, 
+            <a href="javascript:void(0);" title="https://www.w3.org/standards/techs/css#w3c_all">CSS</a>,
+            <a href="javascript:void(0);" title="https://www.w3.org/standards/techs/xml#w3c_all">XML</a>,
+            <a href="javascript:void(0);" title="https://www.w3.org/standards/techs/webfonts#w3c_all">Web Fonts</a>.
+        </strong>
+        <div id="legend">
+            <input type="checkbox" id="cbwd" name="trtype" checked="checked" />
+            <label style="color: #DE5826;" for="cbwd">WD: Working Draft</label>
+            <input type="checkbox" id="cblcwd" name="trtype" checked="checked" />
+            <label style="color: #DB9557;" for="cblcwd">LCWD: Last Call Working Draft</label>
+            <input type="checkbox" id="cbcr" name="trtype" checked="checked" />
+            <label style="color: #C5D011;" for="cbcr">CR: Candidate Recommendation</label>
+            <input type="checkbox" id="cbstds" name="trtype" checked="checked" />
+            <label style="color: #2A8E31;" for="cbstds">REC: Recommendation</label>
+            <input type="checkbox" id="cbretired" name="trtype" checked="checked" />
+            <label style="color: #999999;" for="cbretired">Retired</label>
+            <input type="checkbox" id="cbnotes" name="trtype" checked="checked" />
+            <label style="color: #001C71;" for="cbnotes">Working Group Notes</label>
+        </div>
+    </form>
+    
+    <div id="waiting">
+        <img src="loader.gif" alt="loading..." />
+    </div>
+    
+    <div id="timesheet"></div>
+  
+    <script type="text/javascript">
+
+        //TR array, data for timesheet
+        var events = new Array();
+        
+        //min and max year of timesheet
+        var minYear = new Date().getFullYear();
+        var maxYear = 0;
+
+        //whether is in the gerenating process
+        var busy = false;
+
+
+        $(document).ready(function() {
+
+            //example standard current status page url for quick test
+            $("strong a").click(function() {
+                $("#pageurl").val($(this).attr("title"));
+            });
+
+
+            //checkbox change event in legend, for filter use
+            $("#legend input").change(function() {
+                //show or hide an TR in timesheet
+                var id = $(this).attr("id");
+                $(".bubble-" + id.substr(2)).parent().css("visibility", $("#" + id + ":checked").length ? "visible" : "hidden");
+            });
+
+
+            //click event of the "generate" button
+            $("#render").click(function() {
+
+                if (!$("#pageurl").val()) {
+                    alert("Pls input the url of a standard current status page to generate the timesheet.");
+                    $("#pageurl").focus();
+                    return;
+                }
+
+                if (busy) return;
+
+                busy = true;
+
+                $("#legend").css("display", "none");
+                $("#waiting").css("display", "block");
+
+                //do not keep data, init array and variables
+                if (!$("#keepdata:checked").length) {
+                    events = [];
+                    $("#timesheet").empty().css("display", "none");
+                    minYear = new Date().getFullYear();
+                    maxYear = 0;
+                }
+
+                //using Yahoo API to retrieve HTML content of specified url
+                $.getJSON(
+                    "http://query.yahooapis.com/v1/public/yql?q=" +
+                    "select%20*%20from%20html%20where%20" +
+                    "url=%22" + encodeURIComponent($("#pageurl").val()) +
+                    "%22%20and%20" +
+                    "xpath=%22/html" +
+                    "%22&format=xml'&callback=?",
+                    function(data) {
+
+                        if (data.results[0]) {
+
+                            //the HTML document
+                            var rmtDoc = $($.parseXML(data.results[0]));
+
+                            //each h3 with id represents a TR category
+                            rmtDoc.find("h3[id]").each(function() {
+
+                                //TR category: stds, wd, lcwd, cr, notes, retired
+                                var category = $(this).attr("id");
+
+                                //each table next to above h3 contains all TRs of corresponding category
+                                $(this).next().find("table").each(function() {
+
+                                    //each tr represents a TR
+                                    $(this).find("tr").each(function() {
+
+                                        //publish date
+                                        var date = $.trim($(this).find("td:eq(0)").text());
+                                        //TR title
+                                        var title = $(this).find("td:eq(1) a").text();
+                                        //TR url
+                                        var link = $(this).find("td:eq(1) a").attr("href");
+                                        //TR description
+                                        var desc = $(this).find("p").text();
+
+                                        //publish year
+                                        var year = parseInt(date.substr(0, 4));
+                                        //publish month
+                                        var month = date.substr(5, 2);
+
+                                        maxYear = Math.max(year, maxYear);
+                                        minYear = Math.min(year, minYear);
+
+                                        //push a TR in the array
+                                        events.push(
+                                            [
+                                                month + "/" + year,
+                                                "<a href='" + link + "' title='" + date + ":\r\n" + desc + "' target='_blank'>" + title + "</a>",
+                                                category
+                                            ]
+                                        );
+
+                                    });
+
+                                });
+
+
+                                //calculate size of #timesheet div to display whole timesheet
+                                $("#timesheet").css({
+                                    width: (maxYear - minYear + 1) * 60,
+                                    height: events.length * 24 + 80
+                                });
+
+                                //sort events array with pulish year and month
+                                events.sort(function(a, b) {
+                                    return parseInt(a[0].substr(3) + a[0].substr(0, 2)) - parseInt(b[0].substr(3) + b[0].substr(0, 2));
+                                });
+
+                                //render the timesheet
+                                new Timesheet('timesheet', minYear, maxYear, events);
+
+                                //recalculate timesheet width
+                                var widthToAdjust = 0;
+                                
+                                //get the max real width and offset of each li
+                                $("ul.data li").each(function() {
+
+                                    var realWidth = 0;
+
+                                    var bgColor = "";
+
+                                    $(this).find("span").each(function(i) {
+
+                                        if (!(i % 3)) bgColor = $(this).css("background-color");
+
+                                        realWidth += $(this).width();
+
+                                        if (i % 3 == 2) $(this).find("a").css("color", bgColor);
+
+                                        if (i % 3) $(this).css("color", bgColor);
+                                    });
+
+                                    realWidth += $(this).find("span:first").offset().left;
+
+                                    widthToAdjust = Math.max(widthToAdjust, realWidth);
+                                });
+
+                                //reset the width of timesheet
+                                $("#timesheet").css({ width: widthToAdjust, display: "block" });
+
+                            });
+
+
+                            $("#waiting").css("display", "none");
+                            $("#legend").css("display", "block");
+                            $("#legend input").prop("checked", "checked");
+
+                            busy = false;
+
+
+                        } else {
+                            alert("Error: cannot retrieve content from specified url.");
+                        }
+                    });
+            });
+        });
+    </script>
+
+  </body>
+</html>

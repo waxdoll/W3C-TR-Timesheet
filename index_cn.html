@@ -1,0 +1,247 @@
+﻿<!DOCTYPE html>
+<html>
+  <head>
+    <title>W3C 技术报告时间表</title>
+    <meta charset="utf-8" /> 
+    <link rel="Stylesheet" type="text/css" href="timesheet-white.css" />
+    <script type="text/javascript" src="jquery-1.11.3.min.js"></script>
+    <script type="text/javascript" src="timesheet.min.js"></script>
+    <style type="text/css">
+        body, html { height: 100%; margin: 5px; font-size: 12px; font-family: Arial; }
+        
+        .white .timesheet .scale section { font-family: Arial; }
+        
+        form, #legend, #copyright, #waiting { margin: 20px auto; }
+      
+        #pageurl { width: 300px; }
+        #timesheet a { text-decoration: none; }
+        #timesheet span { font-family: Arial; }
+        
+        label { font-weight: bold; }
+        
+        #legend { display: none; }
+      
+        #waiting { display: none; text-align: center; }
+      
+        .timesheet.color-scheme-default .bubble-stds { background-color: #2A8E31; }
+        .timesheet.color-scheme-default .bubble-notes { background-color: #001C71; }
+        .timesheet.color-scheme-default .bubble-cr { background-color: #C5D011; }
+        .timesheet.color-scheme-default .bubble-lcwd { background-color: #DB9557; }
+        .timesheet.color-scheme-default .bubble-wd { background-color: #DE5826; }
+        .timesheet.color-scheme-default .bubble-retired { background-color: #999999; }
+        
+        
+    </style>
+  </head>
+  <body class="white">
+
+    <form action="">
+        <h1>W3C 技术报告时间表</h1>
+        <label for="pageurl">标准当前状态页面地址：</label>
+        <input type="text" name="pageurl" id="pageurl" placeholder="http://" />
+        <input type="button" value=" 生 成 " id="render" />
+        &nbsp;&nbsp;
+        <input type="checkbox" name="keepdata" id="keepdata" /><label for="keepdata">保留数据</label>
+        &nbsp;&nbsp;示例：
+        <strong>
+            <a href="javascript:void(0);" title="https://www.w3.org/standards/techs/html#w3c_all">HTML</a>, 
+            <a href="javascript:void(0);" title="https://www.w3.org/standards/techs/css#w3c_all">CSS</a>,
+            <a href="javascript:void(0);" title="https://www.w3.org/standards/techs/xml#w3c_all">XML</a>,
+            <a href="javascript:void(0);" title="https://www.w3.org/standards/techs/webfonts#w3c_all">Web Fonts</a>.
+        </strong>
+        <div id="legend">
+            <input type="checkbox" id="cbwd" name="trtype" checked="checked" />
+            <label style="color: #DE5826;" for="cbwd">WD: 工作草案</label>
+            <input type="checkbox" id="cblcwd" name="trtype" checked="checked" />
+            <label style="color: #DB9557;" for="cblcwd">LCWD: 标准草案最终征求意见稿</label>
+            <input type="checkbox" id="cbcr" name="trtype" checked="checked" />
+            <label style="color: #C5D011;" for="cbcr">CR: 候选推荐标准</label>
+            <input type="checkbox" id="cbstds" name="trtype" checked="checked" />
+            <label style="color: #2A8E31;" for="cbstds">REC: 推荐标准</label>
+            <input type="checkbox" id="cbretired" name="trtype" checked="checked" />
+            <label style="color: #999999;" for="cbretired">已废弃</label>
+            <input type="checkbox" id="cbnotes" name="trtype" checked="checked" />
+            <label style="color: #001C71;" for="cbnotes">工作组备忘</label>
+        </div>
+    </form>
+    
+    <div id="waiting">
+        <img src="loader.gif" alt="loading..." />
+    </div>
+    
+    <div id="timesheet"></div>
+  
+    <script type="text/javascript">
+
+        //技术报告数组，时间表组件需要的数据
+        var events = new Array();
+        
+        //时间表组件的最小和最大年份
+        var minYear = new Date().getFullYear();
+        var maxYear = 0;
+
+        //是否正处于生成过程中
+        var busy = false;
+
+
+        $(document).ready(function() {
+
+            //单击链接填充文本框以演示快速示例
+            $("strong a").click(function() {
+                $("#pageurl").val($(this).attr("title"));
+            });
+
+
+            //图例中复选框 change 事件，用于筛选
+            $("#legend input").change(function() {
+                //显示或隐藏一类技术报告
+                var id = $(this).attr("id");
+                $(".bubble-" + id.substr(2)).parent().css("visibility", $("#" + id + ":checked").length ? "visible" : "hidden");
+            });
+
+
+            //生成按钮单击事件
+            $("#render").click(function() {
+
+                if (!$("#pageurl").val()) {
+                    alert("Pls input the url of a standard current status page to generate the timesheet.");
+                    $("#pageurl").focus();
+                    return;
+                }
+
+                if (busy) return;
+
+                busy = true;
+
+                $("#legend").css("display", "none");
+                $("#waiting").css("display", "block");
+
+                //不保留数据，重新初始化数组和变量
+                if (!$("#keepdata:checked").length) {
+                    events = [];
+                    $("#timesheet").empty().css("display", "none");
+                    minYear = new Date().getFullYear();
+                    maxYear = 0;
+                }
+
+                //使用 Yahoo API 获取指定 url 的 HTML 内容
+                $.getJSON(
+                    "http://query.yahooapis.com/v1/public/yql?q=" +
+                    "select%20*%20from%20html%20where%20" +
+                    "url=%22" + encodeURIComponent($("#pageurl").val()) +
+                    "%22%20and%20" +
+                    "xpath=%22/html" +
+                    "%22&format=xml'&callback=?",
+                    function(data) {
+
+                        if (data.results[0]) {
+
+                            //HTML 文档对象
+                            var rmtDoc = $($.parseXML(data.results[0]));
+
+                            //每个包含 id 属性的 h3 元素表示一类技术报告
+                            rmtDoc.find("h3[id]").each(function() {
+
+                                //技术报告的类别：标准、工作组草案等
+                                var category = $(this).attr("id");
+
+                                //每个 h3 下方的 table 包含相应类别的所有技术报告
+                                $(this).next().find("table").each(function() {
+
+                                    //每个 tr 中的内容代表一份技术报告
+                                    $(this).find("tr").each(function() {
+
+                                        //发布日期
+                                        var date = $.trim($(this).find("td:eq(0)").text());
+                                        //标题
+                                        var title = $(this).find("td:eq(1) a").text();
+                                        //内容链接
+                                        var link = $(this).find("td:eq(1) a").attr("href");
+                                        //描述
+                                        var desc = $(this).find("p").text();
+
+                                        //发布年份
+                                        var year = parseInt(date.substr(0, 4));
+                                        //发布月份
+                                        var month = date.substr(5, 2);
+
+                                        maxYear = Math.max(year, maxYear);
+                                        minYear = Math.min(year, minYear);
+
+                                        //将技术报告添加到数组中
+                                        events.push(
+                                            [
+                                                month + "/" + year,
+                                                "<a href='" + link + "' title='" + date + ":\r\n" + desc + "' target='_blank'>" + title + "</a>",
+                                                category
+                                            ]
+                                        );
+
+                                    });
+
+                                });
+
+
+                                //计算时间表 div 的大小以显示时间表的所有内容
+                                $("#timesheet").css({
+                                    width: (maxYear - minYear + 1) * 60,
+                                    height: events.length * 24 + 80
+                                });
+
+                                //使用发布年月对技术报告数组进行排序
+                                events.sort(function(a, b) {
+                                    return parseInt(a[0].substr(3) + a[0].substr(0, 2)) - parseInt(b[0].substr(3) + b[0].substr(0, 2));
+                                });
+
+                                //渲染时间表
+                                new Timesheet('timesheet', minYear, maxYear, events);
+
+                                //重新计算时间表的宽度，某些技术报告标题过长显示不全
+                                var widthToAdjust = 0;
+                                
+                                //获取每个 lid 实际宽度和偏移量取其最大值
+                                $("ul.data li").each(function() {
+
+                                    var realWidth = 0;
+
+                                    var bgColor = "";
+
+                                    $(this).find("span").each(function(i) {
+
+                                        if (!(i % 3)) bgColor = $(this).css("background-color");
+
+                                        realWidth += $(this).width();
+
+                                        if (i % 3 == 2) $(this).find("a").css("color", bgColor);
+
+                                        if (i % 3) $(this).css("color", bgColor);
+                                    });
+
+                                    realWidth += $(this).find("span:first").offset().left;
+
+                                    widthToAdjust = Math.max(widthToAdjust, realWidth);
+                                });
+
+                                //重置时间表宽度
+                                $("#timesheet").css({ width: widthToAdjust, display: "block" });
+
+                            });
+
+
+                            $("#waiting").css("display", "none");
+                            $("#legend").css("display", "block");
+                            $("#legend input").prop("checked", "checked");
+
+                            busy = false;
+
+
+                        } else {
+                            alert("Error: cannot retrieve content from specified url.");
+                        }
+                    });
+            });
+        });
+    </script>
+
+  </body>
+</html>
